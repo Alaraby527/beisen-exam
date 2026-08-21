@@ -23,12 +23,17 @@
         }
     }
 
-    function saveData() {
+    function saveDataLocal() {
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
         } catch(e) {
             console.error('保存数据失败', e);
         }
+    }
+
+    function saveData() {
+        saveDataLocal();
+        triggerAutoSync();
     }
 
     // ========== 工具函数 ==========
@@ -821,6 +826,244 @@
         }
     }
 
+    // ========== GitHub 云同步 ==========
+    const GITHUB_CLIENT_ID = '178c6fc778ccc68e1d6a';
+    const GIST_FILENAME = 'beisen-exam-data.json';
+    const GIST_DESC = 'beisen-exam-sync-data';
+    const SYNC_STORAGE_KEY = 'beisen_exam_sync_v1';
+
+    let syncState = {
+        token: null,
+        gistId: null,
+        syncing: false,
+        lastSync: null,
+        pending: false
+    };
+
+    function loadSyncState() {
+        try {
+            const saved = localStorage.getItem(SYNC_STORAGE_KEY);
+            if (saved) {
+                const s = JSON.parse(saved);
+                syncState.token = s.token || null;
+                syncState.gistId = s.gistId || null;
+                syncState.lastSync = s.lastSync || null;
+            }
+        } catch(e) { console.error('加载同步状态失败', e); }
+    }
+
+    function saveSyncState() {
+        try {
+            localStorage.setItem(SYNC_STORAGE_KEY, JSON.stringify({
+                token: syncState.token,
+                gistId: syncState.gistId,
+                lastSync: syncState.lastSync
+            }));
+        } catch(e) { console.error('保存同步状态失败', e); }
+    }
+
+    function isLoggedIn() {
+        return !!syncState.token;
+    }
+
+    async function githubLogin() {
+        try {
+            // 1. 请求设备码
+            const resp = await fetch('https://github.com/login/device/code', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+                body: JSON.stringify({client_id: GITHUB_CLIENT_ID, scope: 'gist'})
+            });
+            const data = await resp.json();
+            if (!data.device_code) {
+                alert('登录请求失败：' + (data.error || '未知错误'));
+                return;
+            }
+
+            // 2. 显示设备码，打开授权页面
+            const code = data.user_code;
+            const url = data.verification_uri;
+            navigator.clipboard.writeText(code).catch(()=>{});
+            window.open(url, '_blank');
+
+            const proceed = confirm(`请在打开的 GitHub 页面中输入以下设备码并授权：\n\n${code}\n\n（已自动复制到剪贴板）\n\n点击"确定"后将自动等待授权完成...`);
+            if (!proceed) return;
+
+            // 3. 轮询获取 token
+            const interval = (data.interval || 5) * 1000;
+            const expiresAt = Date.now() + (data.expires_in || 900) * 1000;
+
+            while (Date.now() < expiresAt) {
+                await new Promise(r => setTimeout(r, interval));
+                const tokenResp = await fetch('https://github.com/login/oauth/access_token', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+                    body: JSON.stringify({
+                        client_id: GITHUB_CLIENT_ID,
+                        device_code: data.device_code,
+                        grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
+                    })
+                });
+                const tokenData = await tokenResp.json();
+                if (tokenData.access_token) {
+                    syncState.token = tokenData.access_token;
+                    saveSyncState();
+                    alert('登录成功！正在同步数据...');
+                    await findOrCreateGist();
+                    await loadFromGist();
+                    updateSyncUI();
+                    return;
+                }
+                if (tokenData.error === 'expired_token') {
+                    alert('登录超时，请重试');
+                    return;
+                }
+                if (tokenData.error && tokenData.error !== 'authorization_pending') {
+                    console.log('等待授权中...', tokenData.error);
+                }
+            }
+            alert('登录超时，请重试');
+        } catch(e) {
+            console.error('登录失败', e);
+            alert('登录失败：' + e.message);
+        }
+    }
+
+    function githubLogout() {
+        if (!confirm('确定退出登录吗？退出后云端数据不会删除，但本设备将不再同步。')) return;
+        syncState.token = null;
+        syncState.gistId = null;
+        syncState.lastSync = null;
+        saveSyncState();
+        updateSyncUI();
+    }
+
+    async function githubApi(path, options = {}) {
+        const headers = {
+            'Authorization': `token ${syncState.token}`,
+            'Accept': 'application/vnd.github.v3+json',
+            ...options.headers
+        };
+        const resp = await fetch(`https://api.github.com${path}`, {...options, headers});
+        if (resp.status === 401) {
+            syncState.token = null;
+            saveSyncState();
+            updateSyncUI();
+            throw new Error('登录已过期，请重新登录');
+        }
+        return resp;
+    }
+
+    async function findOrCreateGist() {
+        if (syncState.gistId) return syncState.gistId;
+        try {
+            const resp = await githubApi('/gists?per_page=100');
+            const gists = await resp.json();
+            const found = gists.find(g => g.description === GIST_DESC && g.files[GIST_FILENAME]);
+            if (found) {
+                syncState.gistId = found.id;
+                saveSyncState();
+                return found.id;
+            }
+            // 创建新 Gist
+            const createResp = await githubApi('/gists', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    description: GIST_DESC,
+                    public: false,
+                    files: {[GIST_FILENAME]: {content: JSON.stringify({progress:{}, wrong:[], favorites:[], examHistory:[]})}}
+                })
+            });
+            const newGist = await createResp.json();
+            if (newGist.id) {
+                syncState.gistId = newGist.id;
+                saveSyncState();
+                return newGist.id;
+            }
+        } catch(e) {
+            console.error('查找/创建Gist失败', e);
+        }
+        return null;
+    }
+
+    async function loadFromGist() {
+        if (!isLoggedIn()) return false;
+        try {
+            const gistId = await findOrCreateGist();
+            if (!gistId) return false;
+            const resp = await githubApi(`/gists/${gistId}`);
+            const gist = await resp.json();
+            const file = gist.files[GIST_FILENAME];
+            if (file && file.content) {
+                const cloudData = JSON.parse(file.content);
+                // 合并云端数据到本地（以较新的为准，简单合并）
+                if (cloudData.progress) appData.progress = {...appData.progress, ...cloudData.progress};
+                if (cloudData.wrong) {
+                    const set = new Set([...appData.wrong, ...cloudData.wrong]);
+                    appData.wrong = [...set];
+                }
+                if (cloudData.favorites) {
+                    const set = new Set([...appData.favorites, ...cloudData.favorites]);
+                    appData.favorites = [...set];
+                }
+                if (cloudData.examHistory) {
+                    appData.examHistory = [...appData.examHistory, ...cloudData.examHistory];
+                }
+                saveDataLocal();
+                syncState.lastSync = Date.now();
+                saveSyncState();
+                return true;
+            }
+        } catch(e) {
+            console.error('从云端拉取失败', e);
+        }
+        return false;
+    }
+
+    async function saveToGist() {
+        if (!isLoggedIn() || syncState.syncing) return;
+        syncState.syncing = true;
+        updateSyncUI();
+        try {
+            const gistId = await findOrCreateGist();
+            if (!gistId) return;
+            const content = JSON.stringify(appData);
+            await githubApi(`/gists/${gistId}`, {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({files: {[GIST_FILENAME]: {content}}})
+            });
+            syncState.lastSync = Date.now();
+            saveSyncState();
+        } catch(e) {
+            console.error('同步到云端失败', e);
+        } finally {
+            syncState.syncing = false;
+            updateSyncUI();
+        }
+    }
+
+    // 防抖自动同步
+    let syncTimer = null;
+    function triggerAutoSync() {
+        if (!isLoggedIn()) return;
+        if (syncTimer) clearTimeout(syncTimer);
+        syncTimer = setTimeout(() => saveToGist(), 2000);
+    }
+
+    function updateSyncUI() {
+        const el = document.getElementById('syncStatus');
+        if (!el) return;
+        if (isLoggedIn()) {
+            const time = syncState.lastSync ? new Date(syncState.lastSync).toLocaleTimeString() : '从未';
+            const status = syncState.syncing ? '同步中...' : `已同步 · ${time}`;
+            el.innerHTML = `<span class="sync-dot online"></span>GitHub ${status} <button onclick="window.githubLogout()" class="sync-btn">退出</button>`;
+        } else {
+            el.innerHTML = `<span class="sync-dot offline"></span>未同步 <button onclick="window.githubLogin()" class="sync-btn">登录同步</button>`;
+        }
+    }
+
     // ========== 工具函数 ==========
     function escapeHtml(text) {
         if (!text) return '';
@@ -832,6 +1075,7 @@
     // ========== 初始化 ==========
     function init() {
         loadData();
+        loadSyncState();
         
         // 等待questions.js加载
         if (typeof window.QUESTIONS === 'undefined' || !window.QUESTIONS) {
@@ -841,7 +1085,18 @@
         }
         
         renderHome();
+        updateSyncUI();
         console.log(`北森笔试刷题APP已加载，共 ${window.QUESTIONS.length} 道题`);
+        
+        // 如果已登录，异步拉取云端数据
+        if (isLoggedIn()) {
+            loadFromGist().then(updated => {
+                if (updated) {
+                    renderHome();
+                    console.log('云端数据已同步');
+                }
+            });
+        }
     }
 
     // 暴露全局函数
@@ -862,6 +1117,8 @@
     window.examPrevQuestion = examPrevQuestion;
     window.examNextQuestion = examNextQuestion;
     window.jumpToExamQuestion = jumpToExamQuestion;
+    window.githubLogin = githubLogin;
+    window.githubLogout = githubLogout;
 
     // 启动
     if (document.readyState === 'loading') {
