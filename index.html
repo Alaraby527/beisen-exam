@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>北森笔试刷题 - 行测/综合能力题库</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- 顶部标题栏 -->
+        <header id="header">
+            <div class="header-title" id="headerTitle">北森笔试刷题</div>
+            <div class="header-sub" id="headerSub"></div>
+        </header>
+
+        <!-- 主内容区 -->
+        <main id="main">
+            <!-- 首页视图 -->
+            <div id="view-home" class="view active">
+                <div class="stats-card">
+                    <div class="stats-row">
+                        <div class="stat-item">
+                            <div class="stat-num" id="totalQuestions">0</div>
+                            <div class="stat-label">总题数</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-num" id="doneCount">0</div>
+                            <div class="stat-label">已做题</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-num" id="accuracyRate">0%</div>
+                            <div class="stat-label">正确率</div>
+                        </div>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="totalProgress"></div>
+                    </div>
+                    <div class="progress-text" id="progressText">已完成 0 / 0 题</div>
+                </div>
+
+                <div class="section-title">题库分类</div>
+                <div class="category-list" id="categoryList"></div>
+
+                <div class="section-title">快捷入口</div>
+                <div class="quick-actions">
+                    <button class="action-btn" onclick="startRandomPractice()">
+                        <span class="action-icon">🎲</span>
+                        <span>随机刷题</span>
+                    </button>
+                    <button class="action-btn" onclick="startMockExam()">
+                        <span class="action-icon">📝</span>
+                        <span>模拟考试</span>
+                    </button>
+                    <button class="action-btn" onclick="showView('wrong')">
+                        <span class="action-icon">❌</span>
+                        <span>错题本</span>
+                    </button>
+                    <button class="action-btn" onclick="showView('favorites')">
+                        <span class="action-icon">⭐</span>
+                        <span>收藏夹</span>
+                    </button>
+                </div>
+
+                <div class="section-title">真题卷</div>
+                <div class="paper-list" id="paperList"></div>
+            </div>
+
+            <!-- 刷题视图 -->
+            <div id="view-practice" class="view">
+                <div class="practice-header">
+                    <div class="practice-info">
+                        <span id="practiceCategory"></span>
+                        <span id="practiceProgress">1 / 10</span>
+                        <button class="mode-toggle" id="memorizeToggle" onclick="toggleMemorizeMode()">📖 背题模式</button>
+                    </div>
+                    <div class="practice-actions">
+                        <button class="icon-btn" onclick="toggleFavorite()" id="favBtn">☆</button>
+                        <button class="icon-btn" onclick="exitPractice()">✕</button>
+                    </div>
+                </div>
+                <div class="practice-progress-bar">
+                    <div class="practice-progress-fill" id="practiceProgressFill"></div>
+                </div>
+                <div id="questionContainer"></div>
+                <div class="practice-nav">
+                    <button class="nav-btn" onclick="prevQuestion()" id="prevBtn">上一题</button>
+                    <button class="nav-btn primary" onclick="nextQuestion()" id="nextBtn">下一题</button>
+                </div>
+            </div>
+
+            <!-- 模拟考试视图 -->
+            <div id="view-exam" class="view">
+                <div id="examSetup">
+                    <div class="section-title">模拟考试设置</div>
+                    <div class="exam-config">
+                        <div class="config-item">
+                            <label>题目数量</label>
+                            <select id="examCount">
+                                <option value="20">20题</option>
+                                <option value="30" selected>30题</option>
+                                <option value="50">50题</option>
+                                <option value="100">100题</option>
+                            </select>
+                        </div>
+                        <div class="config-item">
+                            <label>题目来源</label>
+                            <select id="examCategory">
+                                <option value="all">全部题库</option>
+                            </select>
+                        </div>
+                        <div class="config-item">
+                            <label>考试时长</label>
+                            <select id="examDuration">
+                                <option value="15">15分钟</option>
+                                <option value="30" selected>30分钟</option>
+                                <option value="45">45分钟</option>
+                                <option value="60">60分钟</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="start-exam-btn" onclick="startExam()">开始考试</button>
+                </div>
+                <div id="examRunning" style="display:none;">
+                    <div class="exam-header">
+                        <div class="exam-timer" id="examTimer">30:00</div>
+                        <div class="exam-progress" id="examProgress">1 / 30</div>
+                        <button class="submit-btn" onclick="submitExam()">交卷</button>
+                    </div>
+                    <div id="examQuestionContainer"></div>
+                    <div class="exam-nav">
+                        <button class="nav-btn" onclick="examPrevQuestion()" id="examPrevBtn">上一题</button>
+                        <button class="nav-btn" onclick="examNextQuestion()" id="examNextBtn">下一题</button>
+                    </div>
+                    <div class="exam-question-nav" id="examQuestionNav"></div>
+                </div>
+                <div id="examResult" style="display:none;"></div>
+            </div>
+
+            <!-- 错题本视图 -->
+            <div id="view-wrong" class="view">
+                <div class="view-header">
+                    <div class="view-title">错题本</div>
+                    <div class="view-sub" id="wrongCount">共 0 道错题</div>
+                </div>
+                <div id="wrongList" class="question-list"></div>
+            </div>
+
+            <!-- 收藏夹视图 -->
+            <div id="view-favorites" class="view">
+                <div class="view-header">
+                    <div class="view-title">收藏夹</div>
+                    <div class="view-sub" id="favCount">共 0 道收藏</div>
+                </div>
+                <div id="favoritesList" class="question-list"></div>
+            </div>
+
+            <!-- 统计视图 -->
+            <div id="view-stats" class="view">
+                <div class="view-header">
+                    <div class="view-title">学习统计</div>
+                </div>
+                <div class="stats-detail">
+                    <div class="stats-card">
+                        <div class="stats-row">
+                            <div class="stat-item">
+                                <div class="stat-num" id="statTotal">0</div>
+                                <div class="stat-label">总题数</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-num" id="statDone">0</div>
+                                <div class="stat-label">已做题</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-num" id="statCorrect">0</div>
+                                <div class="stat-label">做对题</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-num" id="statWrong">0</div>
+                                <div class="stat-label">做错题</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="section-title">各分类正确率</div>
+                    <div id="categoryStats" class="category-stats"></div>
+                    <div class="section-title">考试记录</div>
+                    <div id="examHistory" class="exam-history"></div>
+                </div>
+            </div>
+        </main>
+
+        <!-- 底部导航 -->
+        <nav id="bottomNav">
+            <button class="nav-item active" data-view="home" onclick="showView('home')">
+                <span class="nav-icon">🏠</span>
+                <span class="nav-label">首页</span>
+            </button>
+            <button class="nav-item" data-view="exam" onclick="showView('exam')">
+                <span class="nav-icon">📝</span>
+                <span class="nav-label">考试</span>
+            </button>
+            <button class="nav-item" data-view="wrong" onclick="showView('wrong')">
+                <span class="nav-icon">❌</span>
+                <span class="nav-label">错题</span>
+            </button>
+            <button class="nav-item" data-view="favorites" onclick="showView('favorites')">
+                <span class="nav-icon">⭐</span>
+                <span class="nav-label">收藏</span>
+            </button>
+            <button class="nav-item" data-view="stats" onclick="showView('stats')">
+                <span class="nav-icon">📊</span>
+                <span class="nav-label">统计</span>
+            </button>
+        </nav>
+    </div>
+
+    <script src="questions.js"></script>
+    <script src="papers.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
