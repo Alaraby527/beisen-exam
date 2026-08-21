@@ -868,61 +868,40 @@
 
     async function githubLogin() {
         try {
-            // 1. 请求设备码
-            const resp = await fetch('https://github.com/login/device/code', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
-                body: JSON.stringify({client_id: GITHUB_CLIENT_ID, scope: 'gist'})
-            });
-            const data = await resp.json();
-            if (!data.device_code) {
-                alert('登录请求失败：' + (data.error || '未知错误'));
+            // 提示用户创建 Token
+            const msg = `登录同步需要一个 GitHub 访问令牌（只需要 gist 权限）\n\n步骤：\n1. 点击确定后会自动打开生成页面\n2. 页面已自动填好权限，直接拉到底点 "Generate token"\n3. 复制生成的 token（ghp_开头），回到这里粘贴\n\n点击确定继续...`;
+            if (!confirm(msg)) return;
+
+            // 打开预填好权限的 Token 生成页面
+            window.open('https://github.com/settings/tokens/new?scopes=gist&description=beisen-exam-sync', '_blank');
+
+            // 让用户输入 Token
+            const token = prompt('请粘贴你刚生成的 GitHub Token（ghp_开头）：');
+            if (!token || !token.trim()) {
+                alert('未输入 Token，登录取消');
                 return;
             }
 
-            // 2. 显示设备码，打开授权页面
-            const code = data.user_code;
-            const url = data.verification_uri;
-            navigator.clipboard.writeText(code).catch(()=>{});
-            window.open(url, '_blank');
+            const trimmedToken = token.trim();
 
-            const proceed = confirm(`请在打开的 GitHub 页面中输入以下设备码并授权：\n\n${code}\n\n（已自动复制到剪贴板）\n\n点击"确定"后将自动等待授权完成...`);
-            if (!proceed) return;
+            // 验证 Token 是否有效
+            const testResp = await fetch('https://api.github.com/user', {
+                headers: {'Authorization': `token ${trimmedToken}`, 'Accept': 'application/vnd.github.v3+json'}
+            });
 
-            // 3. 轮询获取 token
-            const interval = (data.interval || 5) * 1000;
-            const expiresAt = Date.now() + (data.expires_in || 900) * 1000;
-
-            while (Date.now() < expiresAt) {
-                await new Promise(r => setTimeout(r, interval));
-                const tokenResp = await fetch('https://github.com/login/oauth/access_token', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
-                    body: JSON.stringify({
-                        client_id: GITHUB_CLIENT_ID,
-                        device_code: data.device_code,
-                        grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
-                    })
-                });
-                const tokenData = await tokenResp.json();
-                if (tokenData.access_token) {
-                    syncState.token = tokenData.access_token;
-                    saveSyncState();
-                    alert('登录成功！正在同步数据...');
-                    await findOrCreateGist();
-                    await loadFromGist();
-                    updateSyncUI();
-                    return;
-                }
-                if (tokenData.error === 'expired_token') {
-                    alert('登录超时，请重试');
-                    return;
-                }
-                if (tokenData.error && tokenData.error !== 'authorization_pending') {
-                    console.log('等待授权中...', tokenData.error);
-                }
+            if (!testResp.ok) {
+                alert('Token 无效或没有权限，请确认生成时勾选了 gist 权限');
+                return;
             }
-            alert('登录超时，请重试');
+
+            const userData = await testResp.json();
+            syncState.token = trimmedToken;
+            saveSyncState();
+
+            alert(`登录成功！欢迎 ${userData.login}\n正在同步数据...`);
+            await findOrCreateGist();
+            await loadFromGist();
+            updateSyncUI();
         } catch(e) {
             console.error('登录失败', e);
             alert('登录失败：' + e.message);
