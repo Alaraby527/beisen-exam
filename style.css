@@ -59,6 +59,47 @@ body {
     letter-spacing: 1px;
 }
 
+.sync-status {
+    margin-top: 8px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    opacity: 0.95;
+}
+
+.sync-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.sync-dot.online {
+    background: #52c41a;
+    box-shadow: 0 0 6px #52c41a;
+}
+
+.sync-dot.offline {
+    background: #ffc53d;
+}
+
+.sync-btn {
+    background: rgba(255,255,255,0.2);
+    border: 1px solid rgba(255,255,255,0.4);
+    color: white;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.sync-btn:hover {
+    background: rgba(255,255,255,0.35);
+}
+
 .header-sub {
     font-size: 13px;
     opacity: 0.85;
